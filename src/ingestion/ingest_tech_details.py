@@ -77,17 +77,33 @@ def load_latest_technical_data_df():
 
     return df
 
-
-
-# Connect to ClickHouse
-client = Client(host='clickhouse-host', user='default', password='your_password', database='default')
-
-# Insert data from Pandas DataFrame
-rows = list(df.itertuples(index=False, name=None))
-client.execute(
-    "INSERT INTO my_table (col1, col2, col3) VALUES",
-    rows
-)
+def create_table_tech_data(client):
+    client.command("""
+        CREATE TABLE IF NOT EXISTS flexpwr.technical_data (
+            asset_id String,
+            name String,
+            type String,
+            location String,
+            technical_attributes String,
+            status String,
+            owner String
+        )
+        ENGINE = MergeTree()
+        ORDER BY (asset_id);
+    """)
+    # client.command("""
+    #     CREATE TABLE IF NOT EXISTS flexpwr.technical_data (
+    #         asset_id String,
+    #         name String,
+    #         type String,
+    #         location Map(String, String),
+    #         technical_attributes Map(String, String),
+    #         status String,
+    #         owner Map(String, String)
+    #     )
+    #     ENGINE = MergeTree()
+    #     ORDER BY (asset_id);
+    # """)
 
 
 # --- Run ---
@@ -95,11 +111,11 @@ if __name__ == "__main__":
     df = load_latest_technical_data_df()
     print("Shape:", df.shape)
 
-    pd.set_option('display.max_rows', None)      # Show all rows
-    pd.set_option('display.max_columns', None)   # Show all columns
-    pd.set_option('display.width', None)         # Auto-detect width to avoid wrapping
-    pd.set_option('display.max_colwidth', None)
-    print(df.head())
+    # pd.set_option('display.max_rows', none)      # show all rows
+    # pd.set_option('display.max_columns', none)   # show all columns
+    # pd.set_option('display.width', none)         # auto-detect width to avoid wrapping
+    # pd.set_option('display.max_colwidth', none)
+    # print(df.head())
 
     client = clickhouse_connect.get_client(
         host='eay8wn9jhw.eu-central-1.aws.clickhouse.cloud',
@@ -107,6 +123,25 @@ if __name__ == "__main__":
         password='2~i795k.Qnixc',
         secure=True
     )
-    print("Result:", client.query("SELECT 1").result_set[0][0])
+
+
+    table_exists = bool(client.query("SELECT 1 FROM information_schema.tables where table_catalog='flexpwr' and table_name='technical_data'").result_set)
+    print("Table exists:", table_exists)
+    if not table_exists:
+        create_table_tech_data(client)  
+    
+    print("Inserting data into ClickHouse...")
+    # Insert data from Pandas DataFrame
+    # rows = list(df.itertuples(index=False, name=None))
+    # print(rows)
+    # client.command(
+    #     f'''INSERT INTO flexpwr.technical_data
+    #     (asset_id, name, type, location, technical_attributes, status, owner)
+    #       VALUES''',
+    #     df.to_dict('records')
+    # )
+    table_name = 'flexpwr.technical_data'  #
+    client.insert_df(table_name, df)
+    print("Data inserted successfully.")    
 
 
