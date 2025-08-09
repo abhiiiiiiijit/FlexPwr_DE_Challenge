@@ -68,42 +68,27 @@ def load_latest_technical_data_df():
         if isinstance(df[col].iloc[0], dict):
             df[col] = df[col].apply(json.dumps)
 
-    # Parse date fields if present
-    if "technical_attributes" in df.columns:
-        # If commissioning_date is inside technical_attributes, leave it as is inside JSON
-        pass
-    if "commissioning_date" in df.columns:
-        df["commissioning_date"] = pd.to_datetime(df["commissioning_date"], errors="coerce")
+    df['ymd'] = pd.to_datetime(latest_ts).date()  # Add date column
 
     return df
 
 def create_table_tech_data(client):
     client.command("""
-        CREATE TABLE IF NOT EXISTS flexpwr.technical_data (
-            asset_id String,
-            name String,
-            type String,
-            location String,
-            technical_attributes String,
-            status String,
-            owner String
-        )
-        ENGINE = MergeTree()
-        ORDER BY (asset_id);
+        CREATE TABLE IF NOT EXISTS flexpwr_raw.technical_data (
+        asset_id String,
+        name String,
+        type String,
+        location String,
+        technical_attributes String,
+        status String,
+        owner String,
+        ymd Date DEFAULT toDate(now())
+    )
+    ENGINE = MergeTree()
+    PARTITION BY ymd
+    ORDER BY (asset_id, ymd)
+    PRIMARY KEY (asset_id, ymd);
     """)
-    # client.command("""
-    #     CREATE TABLE IF NOT EXISTS flexpwr.technical_data (
-    #         asset_id String,
-    #         name String,
-    #         type String,
-    #         location Map(String, String),
-    #         technical_attributes Map(String, String),
-    #         status String,
-    #         owner Map(String, String)
-    #     )
-    #     ENGINE = MergeTree()
-    #     ORDER BY (asset_id);
-    # """)
 
 
 # --- Run ---
@@ -111,11 +96,6 @@ if __name__ == "__main__":
     df = load_latest_technical_data_df()
     print("Shape:", df.shape)
 
-    # pd.set_option('display.max_rows', none)      # show all rows
-    # pd.set_option('display.max_columns', none)   # show all columns
-    # pd.set_option('display.width', none)         # auto-detect width to avoid wrapping
-    # pd.set_option('display.max_colwidth', none)
-    # print(df.head())
 
     client = clickhouse_connect.get_client(
         host='eay8wn9jhw.eu-central-1.aws.clickhouse.cloud',
@@ -125,23 +105,14 @@ if __name__ == "__main__":
     )
 
 
-    table_exists = bool(client.query("SELECT 1 FROM information_schema.tables where table_catalog='flexpwr' and table_name='technical_data'").result_set)
+    table_exists = bool(client.query("SELECT 1 FROM information_schema.tables where table_catalog='flexpwr_raw' and table_name='technical_data'").result_set)
     print("Table exists:", table_exists)
     if not table_exists:
         create_table_tech_data(client)  
     
     print("Inserting data into ClickHouse...")
-    # Insert data from Pandas DataFrame
-    # rows = list(df.itertuples(index=False, name=None))
-    # print(rows)
-    # client.command(
-    #     f'''INSERT INTO flexpwr.technical_data
-    #     (asset_id, name, type, location, technical_attributes, status, owner)
-    #       VALUES''',
-    #     df.to_dict('records')
-    # )
-    table_name = 'flexpwr.technical_data'  #
+    table_name = 'flexpwr_raw.technical_data'  #
     client.insert_df(table_name, df)
-    print("Data inserted successfully.")    
+    print("Data inserted successfully.")     
 
 
