@@ -1,5 +1,4 @@
 import pendulum
-import clickhouse_connect
 from client import get_forecast
 from connections.clickhouse_client import ClickHouseClient
 import json

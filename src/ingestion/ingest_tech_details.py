@@ -4,7 +4,9 @@ import json
 import requests
 import pandas as pd
 from datetime import datetime
-import clickhouse_connect
+from connections.clickhouse_client import ClickHouseClient
+
+
 
 # --- Config ---
 OWNER = "FlexPwr"
@@ -72,23 +74,11 @@ def load_latest_technical_data_df():
 
     return df
 
-def create_table_tech_data(client):
-    client.command("""
-        CREATE TABLE IF NOT EXISTS flexpwr_raw.technical_data (
-        asset_id String,
-        name String,
-        type String,
-        location String,
-        technical_attributes String,
-        status String,
-        owner String,
-        ymd Date DEFAULT toDate(now())
-    )
-    ENGINE = MergeTree()
-    PARTITION BY ymd
-    ORDER BY (asset_id, ymd)
-    PRIMARY KEY (asset_id, ymd);
-    """)
+def create_table_tech_data(ch_client):
+    # Read SQL file
+    with open('src/ingestion/ddl/flexpwr_raw.technical_data.sql', 'r') as file:
+        raw_tech_ddl = file.read()
+    ch_client.command(raw_tech_ddl)
 
 
 # --- Run ---
@@ -97,22 +87,20 @@ if __name__ == "__main__":
     print("Shape:", df.shape)
 
 
-    client = clickhouse_connect.get_client(
-        host='eay8wn9jhw.eu-central-1.aws.clickhouse.cloud',
-        user='default',
-        password='2~i795k.Qnixc',
-        secure=True
-    )
+    ch_client = ClickHouseClient().get_client()
 
 
-    table_exists = bool(client.query("SELECT 1 FROM information_schema.tables where table_catalog='flexpwr_raw' and table_name='technical_data'").result_set)
+    table_exists = bool(ch_client.query('''SELECT 1 
+                                        FROM information_schema.tables 
+                                        where table_catalog='flexpwr_raw' 
+                                        and table_name='technical_data''').result_set)
     print("Table exists:", table_exists)
     if not table_exists:
-        create_table_tech_data(client)  
+        create_table_tech_data(ch_client)  
     
     print("Inserting data into ClickHouse...")
     table_name = 'flexpwr_raw.technical_data'  #
-    client.insert_df(table_name, df)
+    ch_client.insert_df(table_name, df)
     print("Data inserted successfully.")     
 
 
