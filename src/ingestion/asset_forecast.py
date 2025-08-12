@@ -1,15 +1,11 @@
 import pendulum
 import clickhouse_connect
 from client import get_forecast
+from connections.clickhouse_client import ClickHouseClient
 import json
 
 # ClickHouse connection
-ch_client = clickhouse_connect.get_client(
-    host='eay8wn9jhw.eu-central-1.aws.clickhouse.cloud',
-    user='default',
-    password='2~i795k.Qnixc',
-    secure=True
-)
+ch_client = ClickHouseClient().get_client()
 
 # Step 1: Get all asset_ids
 rows = ch_client.query("SELECT DISTINCT asset_id FROM flexpwr_raw.technical_data").result_set
@@ -58,20 +54,4 @@ else:
 
 
 
-
-
-
-
-
-
-
-# from client import get_forecast
-# import pendulum
-
-# f = get_forecast(
-#     asset_id="WND-DE-003",
-#     version=pendulum.datetime(2025, 8, 9, 8, 30, tz="Europe/Berlin"),
-# )
-
-# print(f"Forecast for asset WND-DE-003 at 2025-06-08T08:15:00+02:00: {f}")
 
