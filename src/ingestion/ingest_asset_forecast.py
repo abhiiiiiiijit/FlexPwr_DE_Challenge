@@ -45,7 +45,9 @@ for asset_id in asset_ids:
 
 # Step 2: Bulk insert into ClickHouse
 if bulk_insert_data:
-    ch_client.insert('flexpwr_raw.asset_forecast', bulk_insert_data, column_names=['asset_id', 'type_id', 'start', 'end', 'version', 'power', 'ymd'])
+    ch_client.insert('flexpwr_raw.asset_forecast', 
+                     bulk_insert_data,
+                     column_names=['asset_id', 'type_id', 'start', 'end', 'version', 'power', 'ymd'],)
 
 else:
     print("No data to insert.")

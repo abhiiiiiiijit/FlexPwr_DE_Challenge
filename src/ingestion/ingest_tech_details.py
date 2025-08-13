@@ -90,10 +90,10 @@ if __name__ == "__main__":
     ch_client = ClickHouseClient().get_client()
 
 
-    table_exists = bool(ch_client.query('''SELECT 1 
+    table_exists = bool(ch_client.query("""SELECT 1 
                                         FROM information_schema.tables 
                                         where table_catalog='flexpwr_raw' 
-                                        and table_name='technical_data''').result_set)
+                                        and table_name='technical_data' """).result_set)
     print("Table exists:", table_exists)
     if not table_exists:
         create_table_tech_data(ch_client)  

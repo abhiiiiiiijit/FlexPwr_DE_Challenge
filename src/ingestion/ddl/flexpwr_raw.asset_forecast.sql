@@ -5,7 +5,9 @@ CREATE TABLE flexpwr_raw.asset_forecast (
     end UInt64,
     version UInt64,
     power Float64,
-    ymd Date DEFAULT toDate(now())
+    ymd Date DEFAULT toDate(now()),
+    created_by String DEFAULT currentUser() ,
+    created_at DateTime DEFAULT now()
 )
 ENGINE = MergeTree()
 PARTITION BY ymd

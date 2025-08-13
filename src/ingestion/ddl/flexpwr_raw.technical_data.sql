@@ -6,7 +6,10 @@ CREATE TABLE IF NOT EXISTS flexpwr_raw.technical_data (
         technical_attributes String,
         status String,
         owner String,
-        ymd Date DEFAULT toDate(now())
+        ymd Date DEFAULT toDate(now()),
+        created_by String DEFAULT currentUser() ,
+        created_at DateTime DEFAULT now()
+        
     )
     ENGINE = MergeTree()
     PARTITION BY ymd
