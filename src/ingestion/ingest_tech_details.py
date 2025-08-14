@@ -1,33 +1,38 @@
 import os
 import re
 import json
-import requests
-import pandas as pd
 from datetime import datetime
-from connections.clickhouse_client import ClickHouseClient
+from typing import List, Dict, Tuple, Any
 
+import pandas as pd
+import requests
 
-
-# --- Config ---
-OWNER = "FlexPwr"
-REPO = "DataEngineeringChallenge"
-PATH = "src/vpp/technical_data"
-GITHUB_TOKEN = os.getenv("GITHUB_TOKEN")  # optional
-
-headers = {}
-if GITHUB_TOKEN:
-    headers["Authorization"] = f"token {GITHUB_TOKEN}"
-
-# --- Helpers ---
 TS_RE = re.compile(r"technical_data_(\d{4}-\d{2}-\d{2}T\d{6}Z)\.json", re.I)
 
-def list_dir(owner, repo, path):
-    url = f"https://api.github.com/repos/{owner}/{repo}/contents/{path}"
-    r = requests.get(url, headers=headers)
-    r.raise_for_status()
-    return r.json()
 
-def find_latest_file(files):
+class GitHubAPI:
+    """Wrapper around GitHub API for easier mocking in tests."""
+    def __init__(self, owner: str, repo: str, token: str = None, session=None):
+        self.owner = owner
+        self.repo = repo
+        self.headers = {}
+        if token:
+            self.headers["Authorization"] = f"token {token}"
+        self.session = session or requests.Session()
+
+    def list_dir(self, path: str) -> List[Dict[str, Any]]:
+        url = f"https://api.github.com/repos/{self.owner}/{self.repo}/contents/{path}"
+        r = self.session.get(url, headers=self.headers)
+        r.raise_for_status()
+        return r.json()
+
+    def download_json(self, url: str) -> Any:
+        r = self.session.get(url, headers=self.headers)
+        r.raise_for_status()
+        return r.json()
+
+
+def find_latest_file(files: List[Dict[str, Any]]) -> Tuple[datetime, str, str]:
     candidates = []
     for f in files:
         if f.get("type") != "file" or not f["name"].endswith(".json"):
@@ -41,7 +46,8 @@ def find_latest_file(files):
         raise RuntimeError("No matching JSON files found.")
     return max(candidates, key=lambda x: x[0])
 
-def extract_record_list(j):
+
+def extract_record_list(j: Any) -> List[Dict[str, Any]]:
     if isinstance(j, list):
         return j
     if isinstance(j, dict):
@@ -53,54 +59,68 @@ def extract_record_list(j):
                 return v
     raise ValueError("Could not find a list of records.")
 
-def load_latest_technical_data_df():
-    files = list_dir(OWNER, REPO, PATH)
+
+def load_latest_technical_data_df(github_api: GitHubAPI, path: str) -> pd.DataFrame:
+    files = github_api.list_dir(path)
     latest_ts, latest_url, latest_name = find_latest_file(files)
-    print(f"Downloading latest: {latest_name} ({latest_ts.isoformat()})")
-    r = requests.get(latest_url, headers=headers)
-    r.raise_for_status()
-    j = r.json()
+    j = github_api.download_json(latest_url)
     records = extract_record_list(j)
 
-    # Convert to DataFrame without flattening nested dicts
     df = pd.DataFrame(records)
 
-    # Ensure nested dict columns are stored as JSON strings (optional, for ClickHouse)
+    # Ensure nested dict columns are stored as JSON strings
     for col in df.columns:
         if isinstance(df[col].iloc[0], dict):
             df[col] = df[col].apply(json.dumps)
 
-    df['ymd'] = pd.to_datetime(latest_ts).date()  # Add date column
-
+    df['ymd'] = pd.to_datetime(latest_ts).date()
     return df
 
-def create_table_tech_data(ch_client):
-    # Read SQL file
-    with open('src/ingestion/ddl/flexpwr_raw.technical_data.sql', 'r') as file:
-        raw_tech_ddl = file.read()
-    ch_client.command(raw_tech_ddl)
+
+def create_table_if_not_exists(ch_client, ddl_path: str, table_check_sql: str):
+    table_exists = bool(
+        ch_client.query(table_check_sql).result_set
+    )
+    if not table_exists:
+        with open(ddl_path, 'r') as file:
+            ddl = file.read()
+        ch_client.command(ddl)
+    return not table_exists  # Returns True if table was created
 
 
-# --- Run ---
-if __name__ == "__main__":
-    df = load_latest_technical_data_df()
+def insert_technical_data(ch_client, table_name: str, df: pd.DataFrame):
+    ch_client.insert_df(table_name, df)
+
+
+def main():
+    from connections.clickhouse_client import ClickHouseClient
+
+    OWNER = "FlexPwr"
+    REPO = "DataEngineeringChallenge"
+    PATH = "src/vpp/technical_data"
+    GITHUB_TOKEN = os.getenv("GITHUB_TOKEN")
+
+    github_api = GitHubAPI(OWNER, REPO, GITHUB_TOKEN)
+    df = load_latest_technical_data_df(github_api, PATH)
     print("Shape:", df.shape)
 
-
     ch_client = ClickHouseClient().get_client()
+    ddl_path = '/home/adminabhi/gitrepo/FlexPwr_DE_Challenge/src/ingestion/ddl/flexpwr_raw.technical_data.sql'
+    table_check_sql = """
+        SELECT 1 
+        FROM information_schema.tables 
+        WHERE table_catalog='flexpwr_raw' 
+          AND table_name='technical_data'
+    """
 
+    created = create_table_if_not_exists(ch_client, ddl_path, table_check_sql)
+    if created:
+        print("Table created.")
 
-    table_exists = bool(ch_client.query("""SELECT 1 
-                                        FROM information_schema.tables 
-                                        where table_catalog='flexpwr_raw' 
-                                        and table_name='technical_data' """).result_set)
-    print("Table exists:", table_exists)
-    if not table_exists:
-        create_table_tech_data(ch_client)  
-    
     print("Inserting data into ClickHouse...")
-    table_name = 'flexpwr_raw.technical_data'  #
-    ch_client.insert_df(table_name, df)
-    print("Data inserted successfully.")     
+    insert_technical_data(ch_client, 'flexpwr_raw.technical_data', df)
+    print("Data inserted successfully.")
 
 
+if __name__ == "__main__":
+    main()
